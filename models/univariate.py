@@ -9,19 +9,18 @@ class ConvLayer(nn.Module):
         kernel_size,
         dilation,
         activation,
-        padding,
-        use_weight_norm=False,
-        is_causal=False,
+        is_causal,
+        use_weight_norm=True,
     ):
         super().__init__()
         self.receptive_field = (kernel_size - 1) * dilation + 1
+
         if is_causal:
             padding = self.receptive_field - 1
             self.padding = nn.ConstantPad1d((padding, 0), 0)
         else:
             padding = self.receptive_field // 2
             self.padding = nn.ConstantPad1d(padding, 0)
-
         self.conv = nn.Conv1d(
             in_channels,
             out_channels,
@@ -69,37 +68,36 @@ class ConvBlock(nn.Module):
         )
 
     def forward(self, x):
-        length = x.size(1)
         x = x + self.block(x)
-        x = x[:, :length]
         return x
 
 
 class DilatedConvEncoder(nn.Module):
     def __init__(
         self,
-        in_channels: int = 1,
-        channels: list[int] = [1],
-        kernel_size: int = 3,
-        activation=nn.GELU(),
-        layers: int = 2,
+        args,
         is_causal: bool = False,
     ):
         super().__init__()
+        kernel_size = args.kernel_size
+        layers = args.layers
+        activation = nn.ReLU() if args.activation == "relu" else nn.GELU()
+        n_blocks = args.n_blocks
         if not is_causal:
             assert kernel_size % 2 == 1
+
         self.net = nn.Sequential(
             *[
                 ConvBlock(
-                    in_channels=channels[i - 1] if i > 0 else in_channels,
-                    out_channels=channels[i],
+                    in_channels=1,
+                    out_channels=1,
                     kernel_size=kernel_size,
                     dilation=2**i,
                     activation=activation,
                     layers=layers,
                     is_causal=is_causal,
                 )
-                for i in range(len(channels))
+                for i in range(n_blocks)
             ]
         )
 

@@ -41,20 +41,18 @@ def process_drinking_data():
 
 def get_rel_ebs(table_name):
     if table_name == "ethylene_methane":
-        rel_ebs = [1.0] * 8 + [0.01] * 8
-        rel_ebs[1] = 0.01
+        rel_ebs = [0.001] * 16
         parquet_file_or_folder = "datasets/gas_sensor/ethylene_methane.parquet"
     elif table_name == "ethylene_CO":
-        rel_ebs = [1.0] * 8 + [0.01] * 8
+        rel_ebs = [0.001] * 16
         parquet_file_or_folder = "datasets/gas_sensor/ethylene_CO.parquet"
     elif table_name == "heavy_drinking":
-        rel_ebs = [10.0] * 3
+        rel_ebs = [0.001] * 3
         parquet_file_or_folder = (
             "datasets/heavy_drinking/all_accelerometer_data_pids_13.parquet"
         )
     else:
         raise ValueError(f"Unsupported Table Name: {table_name}")
-    rel_ebs = [rel_eb * 1e-2 for rel_eb in rel_ebs]
     return rel_ebs, parquet_file_or_folder
 
 
@@ -80,14 +78,18 @@ def partition_data(table, partition_size):
     return partitions
 
 
-def load_data(table_name, partition_size=1000):
+def load_data(table_name, partition_size=0):
     arrow_table, rel_ebs = load_table(table_name)
     table = arrow_table.to_pandas()
     if table_name == "heavy_drinking":
         table = table.drop("time", axis=1)
     err_bounds = compute_err_bounds(table, rel_ebs)
-    partitions = partition_data(table, partition_size)
-    return partitions, err_bounds
+
+    if partition_size > 0:
+        partitions = partition_data(table, partition_size)
+        return partitions, err_bounds
+    else:
+        return table, err_bounds
 
 
 if __name__ == "__main__":
