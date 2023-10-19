@@ -1,6 +1,5 @@
 from pathlib import Path
 import numpy as np
-from pyarrow import parquet
 
 from exp.sz3.pysz import (
     SZ,

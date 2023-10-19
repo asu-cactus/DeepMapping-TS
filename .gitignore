@@ -1,5 +1,8 @@
 .ipynb_checkpoints/
 __pycache__/
 datasets/
+outputs/
 
 *.out
+
+sz_style_compression.py

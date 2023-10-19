@@ -72,24 +72,49 @@ def partition_data(table, partition_size):
     if isinstance(table, pa.Table):
         table = table.to_pandas()
 
+    if partition_size == 0:
+        return [table]
+
     partitions = [
         table.iloc[i : i + partition_size] for i in range(0, len(table), partition_size)
     ]
     return partitions
 
 
+def get_correlation_dependencies(df):
+    df.rename(
+        columns={col_name: i for i, col_name in enumerate(df.columns)},
+        inplace=True,
+        errors="raise",
+    )
+    corr_dep = {}
+    corr_matrix = df.corr()
+    # print(corr_matrix)
+    # print(corr_matrix.columns)
+    for col in corr_matrix.columns:
+        corr_dep[col] = corr_matrix[col].abs().sort_values(ascending=False).index[1]
+    # print(corr_dep)
+    return corr_dep
+
+
 def load_data(table_name, partition_size=0):
+    # Load table
     arrow_table, rel_ebs = load_table(table_name)
     table = arrow_table.to_pandas()
     if table_name == "heavy_drinking":
         table = table.drop("time", axis=1)
+
+    # Compute correlation dependencies
+    corr_dep = get_correlation_dependencies(table)
+
+    # Compute error bounds
     err_bounds = compute_err_bounds(table, rel_ebs)
 
-    if partition_size > 0:
-        partitions = partition_data(table, partition_size)
-        return partitions, err_bounds
-    else:
-        return table, err_bounds
+    # Partition data
+    partitions = partition_data(table, partition_size)
+
+    # Return partitions and error bounds
+    return partitions, err_bounds, corr_dep
 
 
 if __name__ == "__main__":
