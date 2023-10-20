@@ -101,6 +101,7 @@ def load_data(table_name, partition_size=0):
     # Load table
     arrow_table, rel_ebs = load_table(table_name)
     table = arrow_table.to_pandas()
+    print(f"Time series length: {len(table)}")
     if table_name == "heavy_drinking":
         table = table.drop("time", axis=1)
 

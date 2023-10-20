@@ -4,7 +4,7 @@ import numpy as np
 from exp.sz3.pysz import (
     SZ,
 )  # remember to include "third_party" folder in LD_LIBRARY_PATH
-from exp.process_data import load_data
+from exp.utils.data_utils import load_data
 
 folder_name = {
     "ethylene_methane": "gas_sensor",

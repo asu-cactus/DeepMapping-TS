@@ -2,6 +2,7 @@
 __pycache__/
 datasets/
 outputs/
+saved_models/
 
 *.out
 

@@ -1,10 +1,11 @@
-from exp.process_data import load_data
+from exp.utils.data_utils import load_data
 from exp.models.univariate import DilatedConvEncoder
 import torch
 
 import numpy as np
 import pandas as pd
-from exp.compress_utils import compress_main
+from exp.utils.compress_utils import compress_main
+from exp.utils.auxiliary_utils import create_auxiliary_structure
 
 import argparse
 from itertools import chain
@@ -67,9 +68,7 @@ def train_univariate_ts(partitions, args, is_causal, err_bound):
     # criterion = costom_loss
     criterion = torch.nn.MSELoss()
     if share_model:
-        Path(f"saved_models/{args.table_name}/{partitions['col']}").mkdir(
-            parents=True, exist_ok=True
-        )
+        Path(f"saved_models/{args.table_name}/").mkdir(parents=True, exist_ok=True)
         model = DilatedConvEncoder(args, is_causal=is_causal)
         model.to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
@@ -81,7 +80,11 @@ def train_univariate_ts(partitions, args, is_causal, err_bound):
                 )
                 print(f"Epoch {epoch:4d} Partition {i:2d} Loss {loss:.4f}")
         outputs = get_final_outputs(model, partitions, device)
-        
+        # Save model
+        torch.save(
+            model.state_dict(),
+            f"saved_models/{args.table_name}/{partitions[0]['col']}.pt",
+        )
     else:
         outputs = []
         for i, partition in enumerate(partitions):
@@ -182,7 +185,7 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
         if args.mode == "from_self":
             partitions_dict = [
                 {
-                    "col": col_i,
+                    "col": col_i + 1,
                     "input": partition[col_i, :-1].unsqueeze(0),
                     "target": partition[col_i, 1:].unsqueeze(0),
                 }
@@ -194,6 +197,7 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
         elif args.mode == "from_another":
             partitions_dict = [
                 {
+                    "col": col_i + 1,
                     "input": partition[corr_dep[col_i]].unsqueeze(0),
                     "target": partition[col_i].unsqueeze(0),
                 }
@@ -219,14 +223,18 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
         target = torch.cat(
             [partition["target"].squeeze() for partition in partitions_dict], dim=0
         )
-        output, target = output.numpy(), target.numpy()
 
-        # Compress
-        compress_main(args, output, target, err_bound, col_i + 1)
+        # # Compress
+        # compress_main(args, output, target, err_bound, col_i + 1)
+
+        # Quantize or create auxiliary structure
+        # create_auxiliary_structure(args, output, target, err_bound, col_i + 1)
+        
 
         # Compute accuracy
         diff = output - target
-        accuracy = np.sum(np.absolute(diff) < err_bound) / len(diff)
+        accuracy = torch.sum(torch.abs(diff) < err_bound) / len(diff)
+        accuracy = accuracy.item()
         print(f"Accuracy: {accuracy}\n{'=' * 50}\n")
         results.append({"accuracy": round(accuracy, 4)})
     pd.DataFrame(results).to_csv(
@@ -235,19 +243,22 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
 
 
 def run(compress=False):
-    parser = argparse.ArgumentParser(description="DeepMapping-TS")
+    parser = argparse.ArgumentParser(description="DeepMapping-TS train tcn model")
     parser.add_argument("--table_name", type=str, default="ethylene_CO")
-    parser.add_argument("--partition_size", type=int, default=4178505)
+    # For ethylene_CO
+    parser.add_argument("--partition_size", type=int, default=4208262)
+    # For ethylene_mathane
+    # parser.add_argument("--partition_size", type=int, default=4178505)
     # parser.add_argument("--partition_size", type=int, default=10000)
     parser.add_argument("--mode", type=str, default="from_another")
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--layers", type=int, default=1)
     parser.add_argument("--n_blocks", type=int, default=1)
-    parser.add_argument("--activation", type=str, default="gelu")
+    parser.add_argument("--activation", type=str, default="identity")
     parser.add_argument("--lr", type=float, default=3e-3)
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--share_model", type=bool, default=True)
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, default="cuda:1")
     parser.add_argument("--m", type=int, default=8, help="Number of quantized bits")
     args = parser.parse_args()
 
