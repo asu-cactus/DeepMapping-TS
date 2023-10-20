@@ -4,7 +4,7 @@ import torch
 
 import numpy as np
 import pandas as pd
-from exp.utils.compress_utils import compress_main
+from exp.utils.compress_utils import compress_main, create_quantized_aux_structure
 from exp.utils.auxiliary_utils import create_auxiliary_structure
 
 import argparse
@@ -229,7 +229,14 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
 
         # Quantize or create auxiliary structure
         # create_auxiliary_structure(args, output, target, err_bound, col_i + 1)
-        
+        create_quantized_aux_structure(
+            args,
+            output.numpy(),
+            target.numpy(),
+            err_bound,
+            col_i + 1,
+            is_compress_unpredictable=False,
+        )
 
         # Compute accuracy
         diff = output - target

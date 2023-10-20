@@ -1,6 +1,7 @@
 import torch
 from bitarray import bitarray
 from pathlib import Path
+from exp.utils.compress_utils import compress_unpredictable
 
 
 def create_auxiliary_structure(

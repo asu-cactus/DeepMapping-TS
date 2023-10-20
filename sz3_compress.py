@@ -1,4 +1,4 @@
-from exp.process_data import load_data
+from exp.utils.data_utils import load_data
 from exp.sz3_compression import sz_compress
 
 
