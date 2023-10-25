@@ -2,6 +2,7 @@ import sys
 import ctypes
 from ctypes.util import find_library
 import numpy as np
+from time import time
 
 """
 Python API for SZ2/SZ3
@@ -88,7 +89,7 @@ class SZ:
         psnr = 20 * np.log10(data_range) - 10 * np.log10(mse)
         return max_diff, psnr, nrmse
 
-    def decompress(self, data_cmpr, original_shape, original_dtype):
+    def decompress(self, data_cmpr, original_shape, original_dtype, time_elapsed):
         """
         Decompress data with SZ
         :param data_cmpr: compressed data, numpy array format, dtype should be np.uint8
@@ -102,6 +103,8 @@ class SZ:
         self.sz.SZ_decompress.restype = ctypes.POINTER(
             ctypes.c_float if original_dtype == np.float32 else ctypes.c_double
         )
+
+        start = time()
         data_dec_c = self.sz.SZ_decompress(
             ori_type,
             data_cmpr.ctypes.data_as(ctypes.POINTER(ctypes.c_ubyte)),
@@ -112,11 +115,13 @@ class SZ:
             r2,
             r1,
         )
+        time_elapsed["decompress"] += time() - start
 
         data_dec = np.array(data_dec_c[: np.prod(original_shape)]).reshape(
             original_shape
         )
         self.libc.free(data_dec_c)
+
         return data_dec
 
     def compress(self, data, eb_mode, eb_abs, eb_rel, eb_pwr):

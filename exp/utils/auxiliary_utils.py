@@ -29,12 +29,6 @@ def create_auxiliary_structure(
     )
 
 
-def create_quantized_structure(
-    args, output: torch.Tensor, target: torch.Tensor, err_bound: float, col_name: str
-):
-    pass
-
-
 if __name__ == "__main__":
     a = torch.tensor([2, 2, 3], dtype=torch.float32)
     b = torch.tensor([1, 2, 3], dtype=torch.float32)

@@ -60,15 +60,18 @@ def quantization(
         quantized_value = middle_code + sign * (abs(ref - input) // err_bound + 1) // 2
 
         if quantized_value <= 0 or quantized_value >= 2**args.m:
+            # Cannot be predicted
             if is_compress_unpredictable:
                 quantized_values.append(0)
                 compress_unpredictable(input, unpredictables, real_rq_bits)
             else:
                 quantized_values.append(middle_code)
-                unpredictables.append(0)
+                unpredictables.append(ref)
         else:
+            # Can be predicted
             quantized_values.append(quantized_value)
-            unpredictables.append(middle_code)
+            if not is_compress_unpredictable:
+                unpredictables.append(0)
 
     return quantized_values, unpredictables
 
@@ -106,6 +109,9 @@ def create_quantized_aux_structure(
     assert len(quantized_values) == len(
         unpredictables
     ), f"len(quantized_values): {len(quantized_values)}, len(unpredictables): {len(unpredictables)}"
+
+    print(f"Unpredictables: {np.count_nonzero(unpredictables)}")
+
     quantized_values = torch.tensor(quantized_values, dtype=torch.uint8)
     unpredictables = csc_array(np.array(unpredictables, dtype=np.float32))
     # Save quantized_values and unpredictables

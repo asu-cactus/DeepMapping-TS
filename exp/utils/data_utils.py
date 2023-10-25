@@ -81,7 +81,7 @@ def partition_data(table, partition_size):
     return partitions
 
 
-def get_correlation_dependencies(df):
+def get_correlation_dependencies(df, mode="start_one"):
     df.rename(
         columns={col_name: i for i, col_name in enumerate(df.columns)},
         inplace=True,
@@ -91,22 +91,57 @@ def get_correlation_dependencies(df):
     corr_matrix = df.corr()
     # print(corr_matrix)
     # print(corr_matrix.columns)
-    for col in corr_matrix.columns:
-        corr_dep[col] = corr_matrix[col].abs().sort_values(ascending=False).index[1]
-    # print(corr_dep)
+    if mode == "greedy":
+        for col in corr_matrix.columns:
+            corr_dep[col] = corr_matrix[col].abs().sort_values(ascending=False).index[1]
+
+    elif mode == "start_one":
+        # TODO: Determine whether to use absoulte correlation or not
+        corr_matrix = corr_matrix.to_numpy()
+        open_list = []
+        closed_list = list(range(len(df.columns)))
+
+        # Get the the index of max correlation
+        for i in range(len(corr_matrix)):
+            corr_matrix[i][i] = -1
+        max_corr_idx = np.unravel_index(np.argmax(corr_matrix), corr_matrix.shape)
+        # Get the first two columns
+        corr_dep[max_corr_idx[1]] = max_corr_idx[0]
+        open_list.append(max_corr_idx[0])
+        open_list.append(max_corr_idx[1])
+        closed_list.remove(max_corr_idx[0])
+
+        closed_list.remove(max_corr_idx[1])
+
+        # Get the rest of the columns
+        while len(closed_list) > 0:
+            max_corr = 0
+            max_corr_idx = None
+            for i in open_list:
+                for j in closed_list:
+                    if corr_matrix[i][j] > max_corr:
+                        max_corr = corr_matrix[i][j]
+                        max_corr_idx = (i, j)
+            corr_dep[max_corr_idx[1]] = max_corr_idx[0]
+            open_list.append(max_corr_idx[1])
+            closed_list.remove(max_corr_idx[1])
+
+    corr_dep = {int(k): int(v) for k, v in corr_dep.items()}
+    print(f"Correlation dependencies: {corr_dep}")
     return corr_dep
 
 
-def load_data(table_name, partition_size=0):
+def load_data(table_name, partition_size=0, mode="start_one"):
     # Load table
     arrow_table, rel_ebs = load_table(table_name)
     table = arrow_table.to_pandas()
-    print(f"Time series length: {len(table)}")
+    ts_length = len(table)
+    print(f"Time series length: {ts_length}")
     if table_name == "heavy_drinking":
         table = table.drop("time", axis=1)
 
     # Compute correlation dependencies
-    corr_dep = get_correlation_dependencies(table)
+    corr_dep = get_correlation_dependencies(table, mode)
 
     # Compute error bounds
     err_bounds = compute_err_bounds(table, rel_ebs)
@@ -116,6 +151,15 @@ def load_data(table_name, partition_size=0):
 
     # Return partitions and error bounds
     return partitions, err_bounds, corr_dep
+
+
+def get_ts_length(table_name):
+    if table_name == "ethylene_CO":
+        return 4208262
+    elif table_name == "ethylene_methane":
+        return 4178505
+    else:
+        raise ValueError(f"Unknown table name: {table_name}")
 
 
 if __name__ == "__main__":

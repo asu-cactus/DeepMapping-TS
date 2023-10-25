@@ -1,16 +1,20 @@
 from exp.utils.data_utils import load_data
 from exp.models.univariate import DilatedConvEncoder
-import torch
-
-import numpy as np
-import pandas as pd
 from exp.utils.compress_utils import compress_main, create_quantized_aux_structure
 from exp.utils.auxiliary_utils import create_auxiliary_structure
+from exp.sz3.pysz import (
+    SZ,
+)  #
 
 import argparse
 from itertools import chain
 from pathlib import Path
+import json
+import pickle
 
+import torch
+import numpy as np
+import pandas as pd
 
 # import torch.nn.functional as F
 # from math import sqrt, exp
@@ -185,7 +189,7 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
         if args.mode == "from_self":
             partitions_dict = [
                 {
-                    "col": col_i + 1,
+                    "col": col_i,
                     "input": partition[col_i, :-1].unsqueeze(0),
                     "target": partition[col_i, 1:].unsqueeze(0),
                 }
@@ -195,9 +199,11 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
             output = train_univariate_ts(partitions_dict, args, is_causal, err_bound)
 
         elif args.mode == "from_another":
+            if col_i == next(iter(corr_dep.values())):
+                continue
             partitions_dict = [
                 {
-                    "col": col_i + 1,
+                    "col": col_i,
                     "input": partition[corr_dep[col_i]].unsqueeze(0),
                     "target": partition[col_i].unsqueeze(0),
                 }
@@ -225,16 +231,16 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
         )
 
         # # Compress
-        # compress_main(args, output, target, err_bound, col_i + 1)
+        # compress_main(args, output, target, err_bound, col_i)
 
         # Quantize or create auxiliary structure
-        # create_auxiliary_structure(args, output, target, err_bound, col_i + 1)
+        create_auxiliary_structure(args, output, target, err_bound, col_i)
         create_quantized_aux_structure(
             args,
             output.numpy(),
             target.numpy(),
             err_bound,
-            col_i + 1,
+            col_i,
             is_compress_unpredictable=False,
         )
 
@@ -249,13 +255,45 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
     )
 
 
+def save_start_column(args, corr_dep, partitions, err_bounds):
+    start_col_id = next(iter(corr_dep.values()))
+    sz = SZ("exp/sz3/libSZ3c.so")
+    column_data = partitions[0][start_col_id].to_numpy()
+    err_bound = err_bounds[start_col_id]
+    data_cmpr, cmpr_ratio = sz.compress(
+        column_data,
+        0,
+        err_bound,
+        0,
+        0,
+    )
+
+    corr_dep = {k: {"dep": v, "err_bound": err_bounds[k]} for k, v in corr_dep.items()}
+    Path(f"outputs/{args.table_name}/aux").mkdir(parents=True, exist_ok=True)
+    with open(f"outputs/{args.table_name}/aux/start_column.sz", "wb") as f:
+        np.save(f, data_cmpr)
+    with open(f"outputs/{args.table_name}/aux/corr_dep.pkl", "wb") as f:
+        pickle.dump(corr_dep, f)
+    # with open(f"outputs/{args.table_name}/aux/corr_dep.json", "w") as outfile:
+    #     json.dump(corr_dep, outfile)
+
+    Path(f"outputs/{args.table_name}/quantized_aux").mkdir(parents=True, exist_ok=True)
+    with open(f"outputs/{args.table_name}/quantized_aux/start_column.sz", "wb") as f:
+        np.save(f, data_cmpr)
+    with open(f"outputs/{args.table_name}/quantized_aux/corr_dep.pkl", "wb") as f:
+        pickle.dump(corr_dep, f)
+    # with open(f"outputs/{args.table_name}/quantized_aux/corr_dep.json", "w") as outfile:
+    #     json.dump(corr_dep, outfile)
+    print(f"Start column id: {start_col_id}")
+
+
 def run(compress=False):
     parser = argparse.ArgumentParser(description="DeepMapping-TS train tcn model")
-    parser.add_argument("--table_name", type=str, default="ethylene_CO")
+    parser.add_argument("--table_name", type=str, default="ethylene_methane")
     # For ethylene_CO
-    parser.add_argument("--partition_size", type=int, default=4208262)
-    # For ethylene_mathane
-    # parser.add_argument("--partition_size", type=int, default=4178505)
+    # parser.add_argument("--partition_size", type=int, default=4208262)
+    # For ethylene_methane
+    parser.add_argument("--partition_size", type=int, default=4178505)
     # parser.add_argument("--partition_size", type=int, default=10000)
     parser.add_argument("--mode", type=str, default="from_another")
     parser.add_argument("--kernel_size", type=int, default=5)
@@ -272,12 +310,15 @@ def run(compress=False):
     # Load data
     partitions, err_bounds, corr_dep = load_data(args.table_name, args.partition_size)
     print("Number of partitions:", len(partitions))
-
+    if args.mode == "from_another":  # And there is one partition
+        save_start_column(args, corr_dep, partitions, err_bounds)
+        # exit()
     # Convert partitions to tensors
     partitions = [
         torch.tensor(partition.to_numpy().transpose(), dtype=torch.float32)
         for partition in partitions
     ]
+
     model_univariate_ts(partitions, args, err_bounds, corr_dep)
 
     if compress:
