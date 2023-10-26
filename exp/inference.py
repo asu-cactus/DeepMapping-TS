@@ -13,6 +13,7 @@ import argparse
 from time import time
 import json
 import pickle
+from pathlib import Path
 
 
 def load_model(args, id):
@@ -54,7 +55,8 @@ def inference_with_quantized_code(
 ):
     # TODO: Consider no padding for input tensor
     start = time()
-    model_output = model(input_ts.unsqueeze(0)).squeeze()
+    with torch.no_grad():
+        model_output = model(input_ts.unsqueeze(0)).squeeze()
     time_elapsed["inference"] += time() - start
 
     start = time()
@@ -227,13 +229,138 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
             results[id] = final_output
 
 
+def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_elapsed):
+    query_range = len(start_columns[0])
+    # first_col_id = next(iter(corr_dep.values()))["dep"]
+    # start_column = torch.from_numpy(start_column).float()
+    start_columns = [
+        torch.from_numpy(start_column).float() if start_column is not None else None
+        for start_column in start_columns
+    ]
+
+    if args.inference_method == "quantized":
+        unpredictabless = [None] * len(start_columns)
+        save_dir = f"outputs/{args.table_name}/quantized_aux/{args.aux_partition_size}"
+        start = time()
+        for path in Path(save_dir).iterdir():
+            if path.suffix == ".npz":
+                unpredictabless[int(path.stem)] = load_npz(path)
+        time_elapsed["load_file"] += time() - start
+    elif args.inference_method == "bitarray":
+        save_dir = f"outputs/{args.table_name}/aux/{args.aux_partition_size}"
+        existence_bitarrays = [None] * len(start_columns)
+        start = time()
+        for path in Path(save_dir).iterdir():
+            if path.suffix == ".bin":
+                existence_bitarray = bitarray()
+                with open(path, "rb") as f:
+                    existence_bitarray.fromfile(f)
+                existence_bitarrays[path.stem] = existence_bitarray
+        time_elapsed["load_bitarray"] += time() - start
+    else:
+        raise ValueError("Invalid inference method")
+
+    for _ in range(args.query_size):
+        query = generate_query(args.query_type, query_range)
+
+        results = [
+            start_column[query[0] : query[1]] if start_column is not None else None
+            for start_column in start_columns
+        ]
+
+        for id, dep_and_eb in corr_dep.items():
+            dep, err_bound = dep_and_eb["dep"], dep_and_eb["err_bound"]
+
+            input_ts = results[dep]
+            model = models[id]
+
+            if args.inference_method == "bitarray":
+                existence_bitarray = existence_bitarrays[id]
+                start = time()
+                start_idx = existence_bitarray.count(0, 0, query[0])
+                length = existence_bitarray.count(0, query[0], query[1])
+                end_idx = start_idx + length
+
+                if args.aux_partition_size == 0:
+                    aux_data = torch.load(f"{save_dir}/{id}.pt")
+                    selected_aux_data = (value for value in aux_data[start_idx:end_idx])
+
+                else:
+                    partitions = []
+                    start_partition = start_idx // args.aux_partition_size
+                    end_partition = end_idx // args.aux_partition_size
+                    for idx in range(start_partition, end_partition + 1):
+                        partition = torch.load(f"{save_dir}/{id}/{idx}.pt")
+                        partitions.append(partition)
+                    selected_aux_data = torch.cat(partitions)
+                    based_idx = start_partition * args.aux_partition_size
+                    selected_aux_data = selected_aux_data[
+                        start_idx - based_idx : end_idx - based_idx
+                    ]
+                    selected_aux_data = (value for value in selected_aux_data)
+
+                selected_bits = existence_bitarray[query[0] : query[1]]
+                aux_data = torch.tensor(
+                    [0.0 if bit else next(selected_aux_data) for bit in selected_bits],
+                    dtype=torch.float32,
+                )
+
+                time_elapsed["load_incorrect"] += time() - start
+
+                final_output = inference_with_bitarray(
+                    model, input_ts, aux_data, time_elapsed
+                )
+
+            elif args.inference_method == "quantized":
+                start = time()
+                if args.aux_partition_size == 0:
+                    quantized_code = torch.load(f"{save_dir}/{id}.pt")[
+                        query[0] : query[1]
+                    ]
+                else:
+                    partitions = []
+                    start_partition = query[0] // args.aux_partition_size
+                    end_partition = query[1] // args.aux_partition_size
+                    for idx in range(start_partition, end_partition + 1):
+                        partition = torch.load(f"{save_dir}/{id}/{idx}.pt")
+                        partitions.append(partition)
+                    quantized_code = torch.cat(partitions)
+                    # Get quantized code in the range of query
+                    based_idx = start_partition * args.aux_partition_size
+                    quantized_code = quantized_code[
+                        query[0] - based_idx : query[1] - based_idx
+                    ]
+                time_elapsed["load_quantized"] += time() - start
+                start = time()
+
+                unpredictables = unpredictabless[id]
+                unpredictable_tensor = torch.from_numpy(
+                    unpredictables[0, query[0] : query[1]].todense()
+                ).squeeze()
+                time_elapsed["load_incorrect"] += time() - start
+                final_output = inference_with_quantized_code(
+                    model,
+                    input_ts,
+                    quantized_code,
+                    unpredictable_tensor,
+                    time_elapsed,
+                    err_bound=err_bound,
+                )
+
+            else:
+                raise ValueError("Invalid inference method")
+
+            results[id] = final_output
+
+
 def run():
     parser = argparse.ArgumentParser(description="DeepMapping-TS inference")
     parser.add_argument("--table_name", type=str, default="ethylene_CO")
+    parser.add_argument("--group_mode", type=str, default="start_one")
     parser.add_argument("--query_type", type=str, default="short")
     parser.add_argument("--query_size", type=int, default=1000)
     parser.add_argument("--inference_method", type=str, default="quantized")
-    parser.add_argument("--aux_partition_size", type=int, default=0)
+    parser.add_argument("--aux_partition_size", type=int, default=500000)
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--layers", type=int, default=1)
     parser.add_argument("--n_blocks", type=int, default=1)
@@ -260,30 +387,62 @@ def run():
         "load_incorrect": 0,
         "load_bitarray": 0,
     }
-
-    # Decompress to get the start column
-    sz = SZ("exp/sz3/libSZ3c.so")
-    start = time()
-    with open(f"outputs/{args.table_name}/aux/start_column.sz", "rb") as f:
-        data_cmpr = np.load(f)
-    ts_length = get_ts_length(args.table_name)
-    data_dec = sz.decompress(data_cmpr, (ts_length,), np.float32, time_elapsed)
-    time_elapsed["decompress"] += time() - start
-
     # Get correlation dependencies
     start = time()
     with open(f"outputs/{args.table_name}/aux/corr_dep.pkl", "rb") as f:
         corr_dep = pickle.load(f)
-    # corr_dep = json.load(open(f"outputs/{args.table_name}/aux/corr_dep.json"))
-    start_column = next(iter(corr_dep.values()))["dep"]
-    models = [
-        load_model(args, id) if id != start_column else None
-        for id in range(len(corr_dep) + 1)
-    ]
     time_elapsed["load_file"] += time() - start
+    # corr_dep = json.load(open(f"outputs/{args.table_name}/aux/corr_dep.json"))
 
-    # Load some auxiliary data
+    # Decompress to get the start column
+    sz = SZ("exp/sz3/libSZ3c.so")
+    if args.group_mode == "start_one":
+        start = time()
+        with open(f"outputs/{args.table_name}/aux/start_column.sz", "rb") as f:
+            data_cmpr = np.load(f)
+        ts_length = get_ts_length(args.table_name)
+        data_dec = sz.decompress(data_cmpr, (ts_length,), np.float32, time_elapsed)
+        time_elapsed["decompress"] += time() - start
 
-    run_queries_v2(args, models, data_dec, corr_dep, time_elapsed)
+        # Load models
+        start_column = next(iter(corr_dep.values()))["dep"]
+        models = [
+            load_model(args, id) if id != start_column else None
+            for id in range(len(corr_dep) + 1)
+        ]
+
+        # Run query
+        run_queries_v2(args, models, data_dec, corr_dep, time_elapsed)
+    elif args.group_mode == "pair":
+        start_columns = [None] * (len(corr_dep) * 2)
+        start = time()
+        for path in Path(f"outputs/{args.table_name}/aux/").iterdir():
+            if path.suffix == ".sz":
+                with open(path, "rb") as f:
+                    data_cmpr = np.load(f)
+                ts_length = get_ts_length(args.table_name)
+                data_dec = sz.decompress(
+                    data_cmpr, (ts_length,), np.float32, time_elapsed
+                )
+                start_columns[int(path.stem)] = data_dec
+        time_elapsed["decompress"] += time() - start
+
+        # Load models
+
+        models = [None] * (len(corr_dep) * 2)
+        for path in Path(f"saved_models/{args.table_name}").iterdir():
+            if path.is_dir():
+                continue
+            id = int(path.stem)
+            start = time()
+            models[id] = load_model(args, id)
+            time_elapsed["load_file"] += time() - start
+
+        # Run query
+        run_queries_for_pair_grouping(
+            args, models, start_columns, corr_dep, time_elapsed
+        )
+    else:
+        raise ValueError("Invalid group mode")
     print(f"Time elapsed: {time_elapsed}")
     print(f"Total time: {sum(time_elapsed.values())}")

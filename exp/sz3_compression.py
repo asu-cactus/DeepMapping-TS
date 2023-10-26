@@ -73,6 +73,8 @@ def run_queries(args, query_range):
 
             start = time()
             data_dec = np.concatenate(data_dec_list)
+            base = first_partition * args.partition_size
+            data_dec = data_dec[query[0] - base : query[1] - base]
             time_elapsed["combine"] += time() - start
     print(f"Time elapsed: {time_elapsed}")
     print(f"Total time: {sum(time_elapsed.values())}")

@@ -254,6 +254,46 @@ def model_univariate_ts(partitions, args, err_bounds, corr_dep):
     )
 
 
+def model_ts_from_other(ts_tensor, args, err_bounds, corr_dep):
+    results = []
+    for target_id, input_id in corr_dep.items():
+        err_bound = err_bounds[target_id]
+        partitions_dict = [
+            {
+                "col": target_id,
+                "input": ts_tensor[input_id].unsqueeze(0),
+                "target": ts_tensor[target_id].unsqueeze(0),
+            }
+        ]
+        is_causal = False
+        output = train_univariate_ts(partitions_dict, args, is_causal, err_bound)
+        # Convert output and target to numpy arrays
+        target = torch.cat(
+            [partition["target"].squeeze() for partition in partitions_dict], dim=0
+        )
+
+        # Quantize or create auxiliary structure
+        create_auxiliary_structure(args, output, target, err_bound, target_id)
+        create_quantized_aux_structure(
+            args,
+            output.numpy(),
+            target.numpy(),
+            err_bound,
+            target_id,
+            is_compress_unpredictable=False,
+        )
+
+        # Compute accuracy
+        diff = output - target
+        accuracy = torch.sum(torch.abs(diff) < err_bound) / len(diff)
+        accuracy = accuracy.item()
+        print(f"Accuracy: {accuracy}\n{'=' * 50}\n")
+        results.append({"accuracy": round(accuracy, 4)})
+    pd.DataFrame(results).to_csv(
+        f"outputs/{args.table_name}_{args.mode}_results.csv", index=False
+    )
+
+
 def save_start_column(args, corr_dep, partition, err_bounds):
     start_col_id = next(iter(corr_dep.values()))
     sz = SZ("exp/sz3/libSZ3c.so")
@@ -288,6 +328,25 @@ def save_start_column(args, corr_dep, partition, err_bounds):
 
 def save_start_columns(args, corr_dep, partition, err_bounds):
     start_col_ids = list(corr_dep.values())
+    if len(err_bounds) // 2 != 0:
+        visited_cols = set(corr_dep.values()) | set(corr_dep.keys())
+        for i in range(len(err_bounds)):
+            if i not in visited_cols:
+                start_col_ids.append(i)
+                break
+
+    corr_dep = {k: {"dep": v, "err_bound": err_bounds[k]} for k, v in corr_dep.items()}
+    with open(f"outputs/{args.table_name}/aux/corr_dep.pkl", "wb") as f:
+        pickle.dump(corr_dep, f)
+    # with open(f"outputs/{args.table_name}/aux/corr_dep.json", "w") as outfile:
+    #     json.dump(corr_dep, outfile)
+
+    with open(f"outputs/{args.table_name}/quantized_aux/corr_dep.pkl", "wb") as f:
+        pickle.dump(corr_dep, f)
+    # with open(f"outputs/{args.table_name}/quantized_aux/corr_dep.json", "w") as outfile:
+    #     json.dump(corr_dep, outfile)
+    print(corr_dep)
+
     sz = SZ("exp/sz3/libSZ3c.so")
     for start_col_id in start_col_ids:
         column_data = partition[start_col_id].to_numpy()
@@ -300,35 +359,24 @@ def save_start_columns(args, corr_dep, partition, err_bounds):
             0,
         )
 
-        corr_dep = {
-            k: {"dep": v, "err_bound": err_bounds[k]} for k, v in corr_dep.items()
-        }
         Path(f"outputs/{args.table_name}/aux").mkdir(parents=True, exist_ok=True)
-        with open(f"outputs/{args.table_name}/aux/start_column.sz", "wb") as f:
+        with open(f"outputs/{args.table_name}/aux/{start_col_id}.sz", "wb") as f:
             np.save(f, data_cmpr)
-        with open(f"outputs/{args.table_name}/aux/corr_dep.pkl", "wb") as f:
-            pickle.dump(corr_dep, f)
-        # with open(f"outputs/{args.table_name}/aux/corr_dep.json", "w") as outfile:
-        #     json.dump(corr_dep, outfile)
 
         Path(f"outputs/{args.table_name}/quantized_aux").mkdir(
             parents=True, exist_ok=True
         )
         with open(
-            f"outputs/{args.table_name}/quantized_aux/start_column.sz", "wb"
+            f"outputs/{args.table_name}/quantized_aux/{start_col_id}.sz", "wb"
         ) as f:
             np.save(f, data_cmpr)
-        with open(f"outputs/{args.table_name}/quantized_aux/corr_dep.pkl", "wb") as f:
-            pickle.dump(corr_dep, f)
-        # with open(f"outputs/{args.table_name}/quantized_aux/corr_dep.json", "w") as outfile:
-        #     json.dump(corr_dep, outfile)
 
 
-def run(compress=False):
+def run():
     parser = argparse.ArgumentParser(description="DeepMapping-TS train tcn model")
     parser.add_argument("--table_name", type=str, default="ethylene_CO")
     # parser.add_argument("--partition_size", type=int, default=0)
-    parser.add_argument("--aux_partition_size", type=int, default=0)
+    parser.add_argument("--aux_partition_size", type=int, default=500000)
     parser.add_argument("--mode", type=str, default="from_another")
     parser.add_argument("--group_mode", type=str, default="start_one")
     parser.add_argument("--kernel_size", type=int, default=5)
@@ -356,12 +404,12 @@ def run(compress=False):
             raise ValueError(f"Unsupported group mode: {args.group_mode}")
 
     # Convert partitions to tensors
-    partitions = [
-        torch.tensor(partition.to_numpy().transpose(), dtype=torch.float32)
-        for partition in partitions
-    ]
+    # partitions = [
+    #     torch.tensor(partition.to_numpy().transpose(), dtype=torch.float32)
+    #     for partition in partitions
+    # ]
 
-    model_univariate_ts(partitions, args, err_bounds, corr_dep)
+    # model_univariate_ts(partitions, args, err_bounds, corr_dep)
 
-    if compress:
-        compress_residuals_with_sz3()
+    ts_tensor = torch.tensor(partitions[0].to_numpy().transpose(), dtype=torch.float32)
+    model_ts_from_other(ts_tensor, args, err_bounds, corr_dep)
