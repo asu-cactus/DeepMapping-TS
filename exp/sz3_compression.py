@@ -11,7 +11,7 @@ from exp.sz3.pysz import (
 )  # remember to include "third_party" folder in LD_LIBRARY_PATH
 
 
-def sz_compress(df, error_bounds, table_name, partition_id=""):
+def sz_compress(args, df, error_bounds, partition_id):
     sz = SZ("exp/sz3/libSZ3c.so")
     for error_bound, col_name in zip(error_bounds, df.columns):
         column_data = df[col_name].to_numpy().astype(np.float32).reshape(-1)
@@ -23,15 +23,16 @@ def sz_compress(df, error_bounds, table_name, partition_id=""):
             0,
         )
         # folder = folder_name[table_name]
-        Path(f"outputs/sz_{table_name}").mkdir(parents=True, exist_ok=True)
-        with open(f"outputs/sz_{table_name}/{col_name}_{partition_id}.sz", "wb") as f:
+        save_dir = f"outputs/sz_{args.table_name}/{args.partition_size}/{col_name}"
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        with open(f"{save_dir}/{partition_id}.sz", "wb") as f:
             np.save(f, data_cmpr)
 
 
 def compress(args):
     partitions, err_bound, _ = load_data(args.table_name, args.partition_size)
     for partition_id, partition in enumerate(partitions):
-        sz_compress(partition, err_bound, args.table_name, partition_id)
+        sz_compress(args, partition, err_bound, partition_id)
 
 
 def run_queries(args, query_range):
@@ -53,7 +54,8 @@ def run_queries(args, query_range):
             for partition_id in range(first_partition, last_partition):
                 start = time()
                 with open(
-                    f"outputs/sz_{args.table_name}/{col_id}_{partition_id}.sz", "rb"
+                    f"outputs/sz_{args.table_name}/{args.partition_size}/{col_id}/{partition_id}.sz",
+                    "rb",
                 ) as f:
                     data_cmpr = np.load(f)
                 time_elapsed["load_file"] += time() - start
@@ -67,7 +69,6 @@ def run_queries(args, query_range):
                 data_dec = sz.decompress(
                     data_cmpr, (partition_size,), np.float32, time_elapsed
                 )
-
                 data_dec_list.append(data_dec)
 
             start = time()
@@ -81,8 +82,8 @@ def run():
     parser = argparse.ArgumentParser(
         description="DeepMapping-TS baseline: sz compression"
     )
-    parser.add_argument("--task", type=str, default="query")
-    parser.add_argument("--table_name", type=str, default="ethylene_methane")
+    parser.add_argument("--task", type=str, default="compress")
+    parser.add_argument("--table_name", type=str, default="ethylene_CO")
     parser.add_argument("--partition_size", type=int, default=100000)
     parser.add_argument("--query_type", type=str, default="short")
     parser.add_argument("--query_size", type=int, default=1000)
