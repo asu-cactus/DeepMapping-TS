@@ -30,61 +30,40 @@ def load_model(args, id):
     return model
 
 
-def inference_with_bitarray(
-    model, input_ts, query, existence_bitarray, aux_data, elapsed_time, **kwargs
-):
+def inference_with_bitarray(model, input_ts, aux_data, time_elapsed):
     # TODO: Consider no padding for input tensor
     start = time()
     model_output = model(input_ts.unsqueeze(0)).squeeze()
-    elapsed_time["inference"] += time() - start
-
-    start = time()
-    start_idx = existence_bitarray.count(0, 0, query[0])
-    length = existence_bitarray.count(0, query[0], query[1])
-    selected_aux_data = (value for value in aux_data[start_idx : start_idx + length])
-    selected_bits = existence_bitarray[query[0] : query[1]]
-    aux_data = torch.tensor(
-        [0.0 if bit else next(selected_aux_data) for bit in selected_bits],
-        dtype=torch.float32,
-    )
-    elapsed_time["decode"] += time() - start
+    time_elapsed["inference"] += time() - start
 
     start = time()
     final_output = model_output + aux_data
-    elapsed_time["add"] += time() - start
+    time_elapsed["decode"] += time() - start
+
     return final_output
 
 
 def inference_with_quantized_code(
     model,
     input_ts,
-    query,
     quantized_code,
     unpredictables,
-    elapsed_time,
+    time_elapsed,
     err_bound=None,
 ):
     # TODO: Consider no padding for input tensor
     start = time()
     model_output = model(input_ts.unsqueeze(0)).squeeze()
-    elapsed_time["inference"] += time() - start
+    time_elapsed["inference"] += time() - start
 
     start = time()
-
-    unpredictable_tensor = torch.from_numpy(
-        unpredictables[0, query[0] : query[1]].todense()
-    ).squeeze()
-    dequantized_values = decode_quantized_values(
-        quantized_code[query[0] : query[1]], err_bound
-    )
-    elapsed_time["decode"] += time() - start
-
-    start = time()
-    # import pdb
-
-    # pdb.set_trace()
-    final_output = model_output + dequantized_values + unpredictable_tensor
-    elapsed_time["add"] += time() - start
+    dequantized_values = decode_quantized_values(quantized_code, err_bound)
+    # print(query)
+    # print(model_output.size())
+    # print(dequantized_values.size())
+    # print(unpredictables.size())
+    final_output = model_output + dequantized_values + unpredictables
+    time_elapsed["decode"] += time() - start
     return final_output
 
 
@@ -128,12 +107,34 @@ def run_queries(args, input_ts, id, query_range, err_bound):
     print(f"Total time: {sum(elapsed_time.values())}")
 
 
-def run_queries2(args, models, start_column, corr_dep, time_elapsed, **kwargs):
+def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
     query_range = len(start_column)
     first_col_id = next(iter(corr_dep.values()))["dep"]
     start_column = torch.from_numpy(start_column).float()
-    if "unpredictabless" in kwargs:
-        unpredictabless = kwargs["unpredictabless"]
+
+    if args.inference_method == "quantized":
+        save_dir = f"outputs/{args.table_name}/quantized_aux/{args.aux_partition_size}"
+        start = time()
+        unpredictabless = [
+            load_npz(f"{save_dir}/{id}.npz") if id != first_col_id else None
+            for id in range(len(corr_dep) + 1)
+        ]
+        time_elapsed["load_file"] += time() - start
+    elif args.inference_method == "bitarray":
+        save_dir = f"outputs/{args.table_name}/aux/{args.aux_partition_size}"
+        existence_bitarrays = []
+        start = time()
+        for id in range(len(corr_dep) + 1):
+            if id == first_col_id:
+                existence_bitarrays.append(None)
+                continue
+            existence_bitarray = bitarray()
+            with open(f"{save_dir}/{id}.bin", "rb") as f:
+                existence_bitarray.fromfile(f)
+            existence_bitarrays.append(existence_bitarray)
+        time_elapsed["load_bitarray"] += time() - start
+    else:
+        raise ValueError("Invalid inference method")
 
     for _ in range(args.query_size):
         query = generate_query(args.query_type, query_range)
@@ -145,41 +146,83 @@ def run_queries2(args, models, start_column, corr_dep, time_elapsed, **kwargs):
 
             input_ts = results[dep]
             model = models[id]
-            # if dep == first_col_id:
-            #     input_ts = input_ts[query[0] : query[1]]
 
-            start = time()
             if args.inference_method == "bitarray":
-                aux_data = torch.load(f"outputs/{args.table_name}/aux/{id}.pt")
-                existence_bitarray = bitarray()
-                with open(f"outputs/{args.table_name}/aux/{id}.bin", "rb") as f:
-                    existence_bitarray.fromfile(f)
-                inference_func = inference_with_bitarray
-                input_data1 = existence_bitarray
-                input_data2 = aux_data
-            elif args.inference_method == "quantized":
-                start2 = time()
-                quantized_code = torch.load(
-                    f"outputs/{args.table_name}/quantized_aux/{id}_quantized.pt"
+                existence_bitarray = existence_bitarrays[id]
+                start = time()
+                start_idx = existence_bitarray.count(0, 0, query[0])
+                length = existence_bitarray.count(0, query[0], query[1])
+                end_idx = start_idx + length
+
+                if args.aux_partition_size == 0:
+                    aux_data = torch.load(f"{save_dir}/{id}.pt")
+                    selected_aux_data = (value for value in aux_data[start_idx:end_idx])
+
+                else:
+                    partitions = []
+                    start_partition = start_idx // args.aux_partition_size
+                    end_partition = end_idx // args.aux_partition_size
+                    for idx in range(start_partition, end_partition + 1):
+                        partition = torch.load(f"{save_dir}/{id}/{idx}.pt")
+                        partitions.append(partition)
+                    selected_aux_data = torch.cat(partitions)
+                    based_idx = start_partition * args.aux_partition_size
+                    selected_aux_data = selected_aux_data[
+                        start_idx - based_idx : end_idx - based_idx
+                    ]
+                    selected_aux_data = (value for value in selected_aux_data)
+
+                selected_bits = existence_bitarray[query[0] : query[1]]
+                aux_data = torch.tensor(
+                    [0.0 if bit else next(selected_aux_data) for bit in selected_bits],
+                    dtype=torch.float32,
                 )
-                time_elapsed["load_quantized"] += time() - start2
+
+                time_elapsed["load_incorrect"] += time() - start
+
+                final_output = inference_with_bitarray(
+                    model, input_ts, aux_data, time_elapsed
+                )
+
+            elif args.inference_method == "quantized":
+                start = time()
+                if args.aux_partition_size == 0:
+                    quantized_code = torch.load(f"{save_dir}/{id}.pt")[
+                        query[0] : query[1]
+                    ]
+                else:
+                    partitions = []
+                    start_partition = query[0] // args.aux_partition_size
+                    end_partition = query[1] // args.aux_partition_size
+                    for idx in range(start_partition, end_partition + 1):
+                        partition = torch.load(f"{save_dir}/{id}/{idx}.pt")
+                        partitions.append(partition)
+                    quantized_code = torch.cat(partitions)
+                    # Get quantized code in the range of query
+                    based_idx = start_partition * args.aux_partition_size
+                    quantized_code = quantized_code[
+                        query[0] - based_idx : query[1] - based_idx
+                    ]
+                time_elapsed["load_quantized"] += time() - start
+                start = time()
+
                 unpredictables = unpredictabless[id]
-                inference_func = inference_with_quantized_code
-                input_data1 = quantized_code
-                input_data2 = unpredictables
+                unpredictable_tensor = torch.from_numpy(
+                    unpredictables[0, query[0] : query[1]].todense()
+                ).squeeze()
+                time_elapsed["load_incorrect"] += time() - start
+
+                final_output = inference_with_quantized_code(
+                    model,
+                    input_ts,
+                    quantized_code,
+                    unpredictable_tensor,
+                    time_elapsed,
+                    err_bound=err_bound,
+                )
             else:
                 raise ValueError("Invalid inference method")
-            time_elapsed["load_file"] += time() - start
 
-            final_output = inference_func(
-                model,
-                input_ts,
-                query,
-                input_data1,
-                input_data2,
-                time_elapsed,
-                err_bound=err_bound,
-            )
             results[id] = final_output
 
 
@@ -189,6 +232,7 @@ def run():
     parser.add_argument("--query_type", type=str, default="short")
     parser.add_argument("--query_size", type=int, default=1000)
     parser.add_argument("--inference_method", type=str, default="quantized")
+    parser.add_argument("--aux_partition_size", type=int, default=0)
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--layers", type=int, default=1)
     parser.add_argument("--n_blocks", type=int, default=1)
@@ -209,11 +253,11 @@ def run():
     time_elapsed = {
         "inference": 0,
         "decode": 0,
-        "add": 0,
         "decompress": 0,
         "load_file": 0,
         "load_quantized": 0,
-        "load_unpredictable": 0,
+        "load_incorrect": 0,
+        "load_bitarray": 0,
     }
 
     # Decompress to get the start column
@@ -222,8 +266,8 @@ def run():
     with open(f"outputs/{args.table_name}/aux/start_column.sz", "rb") as f:
         data_cmpr = np.load(f)
     ts_length = get_ts_length(args.table_name)
-    data_dec, convert_time = sz.decompress(data_cmpr, (ts_length,), np.float32)
-    time_elapsed["decompress"] += time() - start - convert_time
+    data_dec = sz.decompress(data_cmpr, (ts_length,), np.float32, time_elapsed)
+    time_elapsed["decompress"] += time() - start
 
     # Get correlation dependencies
     start = time()
@@ -235,18 +279,10 @@ def run():
         load_model(args, id) if id != start_column else None
         for id in range(len(corr_dep) + 1)
     ]
-
-    start2 = time()
-    unpredictabless = [
-        load_npz(f"outputs/{args.table_name}/quantized_aux/{id}_unpredictables.npz")
-        if id != start_column
-        else None
-        for id in range(len(corr_dep) + 1)
-    ]
-    time_elapsed["load_unpredictable"] += time() - start2
     time_elapsed["load_file"] += time() - start
-    run_queries2(
-        args, models, data_dec, corr_dep, time_elapsed, unpredictabless=unpredictabless
-    )
+
+    # Load some auxiliary data
+
+    run_queries_v2(args, models, data_dec, corr_dep, time_elapsed)
     print(f"Time elapsed: {time_elapsed}")
     print(f"Total time: {sum(time_elapsed.values())}")

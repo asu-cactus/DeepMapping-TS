@@ -2,11 +2,12 @@ from dahuffman import HuffmanCodec
 import zstd
 from bitarray import bitarray
 import numpy as np
+from scipy.sparse import csc_array, save_npz
 import torch
+
 from pathlib import Path
 import struct
 from math import floor, log2, ceil, copysign
-from scipy.sparse import csc_array, save_npz
 
 
 def compress_main(args, input_array, ref_array, err_bound, col_name):
@@ -99,6 +100,30 @@ def further_compress_unpredictables(unpredictables) -> bytes:
     return zstd.compress(bitarray_to_numpy(unpredictables), 22)
 
 
+def save_aux_structure(args, quantized_values, unpredictables, col_name):
+    save_dir = f"outputs/{args.table_name}/quantized_aux/{args.aux_partition_size}"
+    # Save quantization codes
+    if args.aux_partition_size == 0:
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        torch.save(
+            quantized_values,
+            f"{save_dir}/{col_name}.pt",
+        )
+    else:
+        Path(f"{save_dir}/{col_name}").mkdir(parents=True, exist_ok=True)
+        size = len(quantized_values)
+        for idx in range(0, size, args.aux_partition_size):
+            partition = quantized_values[idx : idx + args.aux_partition_size]
+            idx_ = idx // args.aux_partition_size
+            torch.save(partition, f"{save_dir}/{col_name}/{idx_}.pt")
+
+    # Save unpredictable values
+    save_npz(
+        f"{save_dir}/{col_name}.npz",
+        unpredictables,
+    )
+
+
 def create_quantized_aux_structure(
     args, input_array, ref_array, err_bound, col_name, is_compress_unpredictable=False
 ):
@@ -114,19 +139,12 @@ def create_quantized_aux_structure(
 
     quantized_values = torch.tensor(quantized_values, dtype=torch.uint8)
     unpredictables = csc_array(np.array(unpredictables, dtype=np.float32))
+
     # Save quantized_values and unpredictables
-    save_dir = f"outputs/{args.table_name}/quantized_aux"
-    Path(save_dir).mkdir(parents=True, exist_ok=True)
-    torch.save(
-        quantized_values,
-        f"outputs/{args.table_name}/quantized_aux/{col_name}_quantized.pt",
-    )
-    save_npz(
-        f"outputs/{args.table_name}/quantized_aux/{col_name}_unpredictables.npz",
-        unpredictables,
-    )
+    save_aux_structure(args, quantized_values, unpredictables, col_name)
     return quantized_values, unpredictables
 
 
 def decode_quantized_values(quantized_values: torch.Tensor, err_bound: float):
-    return (quantized_values - 2**7) * err_bound * 2
+    # 128 = 2 ** 7
+    return (quantized_values - 128) * err_bound * 2

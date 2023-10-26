@@ -9,7 +9,6 @@ from exp.sz3.pysz import (
 import argparse
 from itertools import chain
 from pathlib import Path
-import json
 import pickle
 
 import torch
@@ -289,12 +288,9 @@ def save_start_column(args, corr_dep, partitions, err_bounds):
 
 def run(compress=False):
     parser = argparse.ArgumentParser(description="DeepMapping-TS train tcn model")
-    parser.add_argument("--table_name", type=str, default="ethylene_methane")
-    # For ethylene_CO
-    # parser.add_argument("--partition_size", type=int, default=4208262)
-    # For ethylene_methane
-    parser.add_argument("--partition_size", type=int, default=4178505)
-    # parser.add_argument("--partition_size", type=int, default=10000)
+    parser.add_argument("--table_name", type=str, default="ethylene_CO")
+    parser.add_argument("--partition_size", type=int, default=0)
+    parser.add_argument("--aux_partition_size", type=int, default=0)
     parser.add_argument("--mode", type=str, default="from_another")
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--layers", type=int, default=1)

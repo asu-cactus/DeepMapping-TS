@@ -2,7 +2,7 @@ import importlib
 
 
 def main():
-    run_func = getattr(importlib.import_module("exp.sz3_compression"), "run")
+    run_func = getattr(importlib.import_module("exp.inference"), "run")
     run_func()
 
 
