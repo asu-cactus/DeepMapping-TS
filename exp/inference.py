@@ -33,7 +33,8 @@ def load_model(args, id):
 def inference_with_bitarray(model, input_ts, aux_data, time_elapsed):
     # TODO: Consider no padding for input tensor
     start = time()
-    model_output = model(input_ts.unsqueeze(0)).squeeze()
+    with torch.no_grad():
+        model_output = model(input_ts.unsqueeze(0)).squeeze()
     time_elapsed["inference"] += time() - start
 
     start = time()

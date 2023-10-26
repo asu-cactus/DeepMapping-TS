@@ -110,7 +110,6 @@ def get_correlation_dependencies(df, mode="start_one"):
         open_list.append(max_corr_idx[0])
         open_list.append(max_corr_idx[1])
         closed_list.remove(max_corr_idx[0])
-
         closed_list.remove(max_corr_idx[1])
 
         # Get the rest of the columns
@@ -125,7 +124,35 @@ def get_correlation_dependencies(df, mode="start_one"):
             corr_dep[max_corr_idx[1]] = max_corr_idx[0]
             open_list.append(max_corr_idx[1])
             closed_list.remove(max_corr_idx[1])
+    elif mode == "pair":
+        corr_matrix = corr_matrix.to_numpy()
+        closed_list = list(range(len(df.columns)))
 
+        # Get the the index of max correlation
+        for i in range(len(corr_matrix)):
+            corr_matrix[i, i] = -1
+        max_corr_idx = np.unravel_index(np.argmax(corr_matrix), corr_matrix.shape)
+        # Get the first two columns
+        corr_dep[max_corr_idx[1]] = max_corr_idx[0]
+        closed_list.remove(max_corr_idx[0])
+        closed_list.remove(max_corr_idx[1])
+
+        while len(closed_list) > 1:
+            max_corr = 0
+            max_index = None
+            for i in range(0, len(closed_list) - 1):
+                for j in range(i, len(closed_list)):
+                    first = closed_list[i]
+                    second = closed_list[j]
+                    if corr_matrix[first, second] > max_corr:
+                        max_corr = corr_matrix[first, second]
+                        max_index = (first, second)
+            corr_dep[max_index[1]] = max_index[0]
+            closed_list.remove(max_index[0])
+            closed_list.remove(max_index[1])
+
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
     corr_dep = {int(k): int(v) for k, v in corr_dep.items()}
     print(f"Correlation dependencies: {corr_dep}")
     return corr_dep
@@ -160,8 +187,3 @@ def get_ts_length(table_name):
         return 4178505
     else:
         raise ValueError(f"Unknown table name: {table_name}")
-
-
-if __name__ == "__main__":
-    process_gas_data("ethylene_methane")
-    # process_drinking_data()

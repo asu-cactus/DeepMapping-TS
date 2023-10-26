@@ -5,5 +5,5 @@ outputs/
 saved_models/
 
 *.out
-
+*.pem
 sz_style_compression.py

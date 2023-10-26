@@ -113,7 +113,7 @@ def save_aux_structure(args, quantized_values, unpredictables, col_name):
         Path(f"{save_dir}/{col_name}").mkdir(parents=True, exist_ok=True)
         size = len(quantized_values)
         for idx in range(0, size, args.aux_partition_size):
-            partition = quantized_values[idx : idx + args.aux_partition_size]
+            partition = quantized_values[idx : idx + args.aux_partition_size].clone()
             idx_ = idx // args.aux_partition_size
             torch.save(partition, f"{save_dir}/{col_name}/{idx_}.pt")
 
