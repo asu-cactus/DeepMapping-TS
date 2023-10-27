@@ -22,7 +22,7 @@ def load_model(args, id):
     #     args,
     # )
     if args.model_type == "tcn":
-        model = DilatedConvEncoder(args)
+        model = ConvLayer(args)
     elif args.model_type == "mlp":
         model = WindowMLP(args)
     elif args.model_type == "rnn":

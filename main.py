@@ -2,7 +2,7 @@ import importlib
 
 
 def main():
-    run_func = getattr(importlib.import_module("exp.train_tcn"), "run")
+    run_func = getattr(importlib.import_module("exp.inference"), "run")
     run_func()
 
 
