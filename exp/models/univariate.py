@@ -5,10 +5,10 @@ class ConvLayer(nn.Module):
     def __init__(
         self,
         args,
-        in_channels,
-        out_channels,
-        dilation,
-        is_causal,
+        in_channels=1,
+        out_channels=1,
+        dilation=1,
+        is_causal=False,
         use_weight_norm=False,
     ):
         super().__init__()
@@ -111,6 +111,32 @@ class DilatedConvEncoder(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
+
+class WindowMLP(nn.Module):
+    def __init__(self, args, **kwargs) -> None:
+        super().__init__()
+        self.window_size = args.window_size
+        self.linear = nn.Linear(self.window_size, self.window_size, bias=False)
+
+    def forward(self, x):
+        dim = x.size(-1)
+        x = x.view(-1, self.window_size)
+        x = self.linear(x)
+        return x.view(-1, dim)
+
+
+class WindowRNN(nn.Module):
+    def __init__(self, args, **kwargs) -> None:
+        super().__init__()
+        self.window_size = args.window_size
+        self.rnn = nn.RNN(1, 1, bias=False, batch_first=True)
+
+    def forward(self, x):
+        dim = x.size(-1)
+        x = x.view(-1, self.window_size, 1)
+        x = self.rnn(x)
+        return x.view(-1, dim)
 
 
 def get_model_size(model):

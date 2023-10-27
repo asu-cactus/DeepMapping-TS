@@ -1,5 +1,5 @@
 from exp.utils.data_utils import load_data
-from exp.models.univariate import DilatedConvEncoder
+from exp.models.univariate import ConvLayer, WindowRNN, WindowMLP
 from exp.utils.compress_utils import compress_main, create_quantized_aux_structure
 from exp.utils.auxiliary_utils import create_auxiliary_structure
 from exp.sz3.pysz import (
@@ -12,6 +12,7 @@ from pathlib import Path
 import pickle
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 
@@ -72,7 +73,14 @@ def train_univariate_ts(partitions, args, is_causal, err_bound):
     criterion = torch.nn.MSELoss()
     if share_model:
         Path(f"saved_models/{args.table_name}/").mkdir(parents=True, exist_ok=True)
-        model = DilatedConvEncoder(args, is_causal=is_causal)
+        if args.model_type == "tcn":
+            model = ConvLayer(args)
+        elif args.model_type == "mlp":
+            model = WindowMLP(args)
+        elif args.model_type == "rnn":
+            model = WindowRNN(args)
+        else:
+            raise ValueError("Invalid model type")
         model.to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
@@ -91,7 +99,7 @@ def train_univariate_ts(partitions, args, is_causal, err_bound):
     else:
         outputs = []
         for i, partition in enumerate(partitions):
-            model = DilatedConvEncoder(args, is_causal=is_causal)
+            model = ConvLayer(args, is_causal=is_causal)
             model.to(device)
             optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
             for epoch in range(epochs):
@@ -134,8 +142,8 @@ def combine_univariate_ts(partitions, args):
     epochs, lr, share_model = args.epochs, args.lr, args.share_model
     criterion = torch.nn.MSELoss()
     if share_model:
-        causal_model = DilatedConvEncoder(args, is_causal=True)
-        non_causal_model = DilatedConvEncoder(args, is_causal=False)
+        causal_model = ConvLayer(args, is_causal=True)
+        non_causal_model = ConvLayer(args, is_causal=False)
         causal_model.to(device)
         non_causal_model.to(device)
         # Optimizer
@@ -164,8 +172,8 @@ def combine_univariate_ts(partitions, args):
     else:
         outputs_combined = []
         for i, partition in enumerate(partitions):
-            causal_model = DilatedConvEncoder(args, is_causal=True)
-            non_causal_model = DilatedConvEncoder(args, is_causal=False)
+            causal_model = ConvLayer(args, is_causal=True)
+            non_causal_model = ConvLayer(args, is_causal=False)
             causal_model.to(device)
             non_causal_model.to(device)
             optimizer = torch.optim.AdamW(
@@ -258,11 +266,19 @@ def model_ts_from_other(ts_tensor, args, err_bounds, corr_dep):
     results = []
     for target_id, input_id in corr_dep.items():
         err_bound = err_bounds[target_id]
+
+        input_tensor = ts_tensor[input_id]
+        target_tensor = ts_tensor[target_id]
+        if args.model_type == "rnn" or "mlp":
+            pad_size = args.window_size - len(input_tensor) % args.window_size
+            input_tensor = F.pad(input_tensor, (0, pad_size), "constant", 0)
+            target_tensor = F.pad(target_tensor, (0, pad_size), "constant", 0)
+
         partitions_dict = [
             {
                 "col": target_id,
-                "input": ts_tensor[input_id].unsqueeze(0),
-                "target": ts_tensor[target_id].unsqueeze(0),
+                "input": input_tensor.unsqueeze(0),
+                "target": target_tensor.unsqueeze(0),
             }
         ]
         is_causal = False
@@ -379,14 +395,20 @@ def run():
     parser.add_argument("--aux_partition_size", type=int, default=500000)
     parser.add_argument("--mode", type=str, default="from_another")
     parser.add_argument("--group_mode", type=str, default="start_one")
+    # Network parameters
+    parser.add_argument("--model_type", type=str, default="tcn")
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--layers", type=int, default=1)
     parser.add_argument("--n_blocks", type=int, default=1)
     parser.add_argument("--activation", type=str, default="identity")
+    parser.add_argument("--window_size", type=int, default=10)
+
+    # Training parameters
     parser.add_argument("--lr", type=float, default=3e-3)
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--share_model", type=bool, default=True)
     parser.add_argument("--device", type=str, default="cuda:1")
+    # Quantization parameters
     parser.add_argument("--m", type=int, default=8, help="Number of quantized bits")
     args = parser.parse_args()
 

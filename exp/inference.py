@@ -1,4 +1,4 @@
-from exp.models.univariate import DilatedConvEncoder
+from exp.models.univariate import DilatedConvEncoder, ConvLayer, WindowMLP, WindowRNN
 from exp.utils.data_utils import load_data, get_ts_length
 from exp.utils.query_generator import generate_query
 from exp.utils.compress_utils import decode_quantized_values
@@ -7,6 +7,7 @@ from exp.sz3.pysz import SZ
 from bitarray import bitarray
 import numpy as np
 import torch
+import torch.nn.functional as F
 from scipy.sparse import load_npz
 
 import argparse
@@ -17,9 +18,17 @@ from pathlib import Path
 
 
 def load_model(args, id):
-    model = DilatedConvEncoder(
-        args,
-    )
+    # model = DilatedConvEncoder(
+    #     args,
+    # )
+    if args.model_type == "tcn":
+        model = DilatedConvEncoder(args)
+    elif args.model_type == "mlp":
+        model = WindowMLP(args)
+    elif args.model_type == "rnn":
+        model = WindowRNN(args)
+    else:
+        raise ValueError("Invalid model type")
     model.load_state_dict(
         torch.load(
             f"saved_models/{args.table_name}/{id}.pt",
@@ -31,12 +40,22 @@ def load_model(args, id):
     return model
 
 
-def inference_with_bitarray(model, input_ts, aux_data, time_elapsed):
+def inference_with_bitarray(args, model, input_ts, aux_data, time_elapsed):
     # TODO: Consider no padding for input tensor
+
+    if args.model_type == "rnn" or "mlp":
+        # TODO: Correct the padding position
+        original_length = len(input_ts)
+        pad_size = args.window_size - len(input_ts) % args.window_size
+        input_ts = F.pad(input_ts, (0, pad_size), "constant", 0)
+
     start = time()
     with torch.no_grad():
         model_output = model(input_ts.unsqueeze(0)).squeeze()
     time_elapsed["inference"] += time() - start
+
+    if args.model_type == "rnn" or "mlp":
+        model_output = model_output[:original_length]
 
     start = time()
     final_output = model_output + aux_data
@@ -46,6 +65,7 @@ def inference_with_bitarray(model, input_ts, aux_data, time_elapsed):
 
 
 def inference_with_quantized_code(
+    args,
     model,
     input_ts,
     quantized_code,
@@ -54,10 +74,19 @@ def inference_with_quantized_code(
     err_bound=None,
 ):
     # TODO: Consider no padding for input tensor
+    if args.model_type == "rnn" or "mlp":
+        # TODO: Correct the padding position
+        original_length = len(input_ts)
+        pad_size = args.window_size - len(input_ts) % args.window_size
+        input_ts = F.pad(input_ts, (0, pad_size), "constant", 0)
+
     start = time()
     with torch.no_grad():
         model_output = model(input_ts.unsqueeze(0)).squeeze()
     time_elapsed["inference"] += time() - start
+
+    if args.model_type == "rnn" or "mlp":
+        model_output = model_output[:original_length]
 
     start = time()
     dequantized_values = decode_quantized_values(quantized_code, err_bound)
@@ -184,7 +213,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                 time_elapsed["load_incorrect"] += time() - start
 
                 final_output = inference_with_bitarray(
-                    model, input_ts, aux_data, time_elapsed
+                    args, model, input_ts, aux_data, time_elapsed
                 )
 
             elif args.inference_method == "quantized":
@@ -216,6 +245,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                 time_elapsed["load_incorrect"] += time() - start
 
                 final_output = inference_with_quantized_code(
+                    args,
                     model,
                     input_ts,
                     quantized_code,
@@ -255,7 +285,7 @@ def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_el
                 existence_bitarray = bitarray()
                 with open(path, "rb") as f:
                     existence_bitarray.fromfile(f)
-                existence_bitarrays[path.stem] = existence_bitarray
+                existence_bitarrays[int(path.stem)] = existence_bitarray
         time_elapsed["load_bitarray"] += time() - start
     else:
         raise ValueError("Invalid inference method")
@@ -308,7 +338,7 @@ def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_el
                 time_elapsed["load_incorrect"] += time() - start
 
                 final_output = inference_with_bitarray(
-                    model, input_ts, aux_data, time_elapsed
+                    args, model, input_ts, aux_data, time_elapsed
                 )
 
             elif args.inference_method == "quantized":
@@ -339,6 +369,7 @@ def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_el
                 ).squeeze()
                 time_elapsed["load_incorrect"] += time() - start
                 final_output = inference_with_quantized_code(
+                    args,
                     model,
                     input_ts,
                     quantized_code,
@@ -359,6 +390,8 @@ def run():
     parser.add_argument("--group_mode", type=str, default="start_one")
     parser.add_argument("--query_type", type=str, default="short")
     parser.add_argument("--query_size", type=int, default=1000)
+    parser.add_argument("--model_type", type=str, default="tcn")
+    parser.add_argument("--window_size", type=int, default=10)
     parser.add_argument("--inference_method", type=str, default="quantized")
     parser.add_argument("--aux_partition_size", type=int, default=500000)
     parser.add_argument("--kernel_size", type=int, default=5)
