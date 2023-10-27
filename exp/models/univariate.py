@@ -135,8 +135,8 @@ class WindowRNN(nn.Module):
     def forward(self, x):
         dim = x.size(-1)
         x = x.view(-1, self.window_size, 1)
-        x = self.rnn(x)
-        return x.view(-1, dim)
+        x, _ = self.rnn(x)
+        return x.reshape(-1, dim)
 
 
 def get_model_size(model):

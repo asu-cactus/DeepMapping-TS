@@ -61,6 +61,7 @@ def train_univariate_ts(partitions, args, is_causal, err_bound):
 
     def train_step(model, partition, criterion, optimizer, epoch, error_bound):
         output = model(partition["input"].to(device)).to("cpu")
+
         # loss = criterion(output, partition["target"], epoch, err_bound)
         loss = criterion(output, partition["target"])
         optimizer.zero_grad(set_to_none=True)
