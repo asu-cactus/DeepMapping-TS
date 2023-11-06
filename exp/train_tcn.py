@@ -390,10 +390,15 @@ def save_start_columns(args, corr_dep, partition, err_bounds):
 
 
 def run():
+    import random
+
+    for _ in range(10):
+        print(random.random())
+    exit()
     parser = argparse.ArgumentParser(description="DeepMapping-TS train tcn model")
     parser.add_argument("--table_name", type=str, default="ethylene_CO")
     # parser.add_argument("--partition_size", type=int, default=0)
-    parser.add_argument("--aux_partition_size", type=int, default=500000)
+    parser.add_argument("--aux_partition_size", type=int, default=100000)
     parser.add_argument("--mode", type=str, default="from_another")
     parser.add_argument("--group_mode", type=str, default="start_one")
     # Network parameters

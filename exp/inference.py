@@ -393,7 +393,7 @@ def run():
     parser.add_argument("--model_type", type=str, default="tcn")
     parser.add_argument("--window_size", type=int, default=10)
     parser.add_argument("--inference_method", type=str, default="quantized")
-    parser.add_argument("--aux_partition_size", type=int, default=500000)
+    parser.add_argument("--aux_partition_size", type=int, default=100000)
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--layers", type=int, default=1)
     parser.add_argument("--n_blocks", type=int, default=1)

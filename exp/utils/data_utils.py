@@ -41,10 +41,10 @@ def process_drinking_data():
 
 def get_rel_ebs(table_name):
     if table_name == "ethylene_methane":
-        rel_ebs = [0.01] * 16
+        rel_ebs = [0.001] * 16
         parquet_file_or_folder = "datasets/gas_sensor/ethylene_methane.parquet"
     elif table_name == "ethylene_CO":
-        rel_ebs = [0.01] * 16
+        rel_ebs = [0.001] * 16
         parquet_file_or_folder = "datasets/gas_sensor/ethylene_CO.parquet"
     elif table_name == "heavy_drinking":
         rel_ebs = [0.001] * 3
