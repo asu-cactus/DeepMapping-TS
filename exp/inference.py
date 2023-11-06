@@ -242,7 +242,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                 unpredictable_tensor = torch.from_numpy(
                     unpredictables[0, query[0] : query[1]].todense()
                 ).squeeze()
-                time_elapsed["load_incorrect"] += time() - start
+                time_elapsed["convert_unpredictables"] += time() - start
 
                 final_output = inference_with_quantized_code(
                     args,
@@ -417,6 +417,7 @@ def run():
         "decompress": 0,
         "load_file": 0,
         "load_quantized": 0,
+        "convert_unpredictables": 0,
         "load_incorrect": 0,
         "load_bitarray": 0,
     }
