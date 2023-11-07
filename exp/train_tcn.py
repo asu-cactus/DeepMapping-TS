@@ -393,7 +393,9 @@ def run():
     parser = argparse.ArgumentParser(description="DeepMapping-TS train tcn model")
     parser.add_argument("--table_name", type=str, default="ethylene_CO")
     # parser.add_argument("--partition_size", type=int, default=0)
-    parser.add_argument("--aux_partition_size", type=int, default=100000)
+    parser.add_argument(
+        "--aux_partition_size", type=str, default="10000,50000,100000,500000,1000000"
+    )
     parser.add_argument("--mode", type=str, default="from_another")
     parser.add_argument("--group_mode", type=str, default="start_one")
     # Network parameters

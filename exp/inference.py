@@ -145,15 +145,16 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
     start_column = torch.from_numpy(start_column).float()
 
     if args.inference_method == "quantized":
-        save_dir = f"outputs/{args.table_name}/quantized_aux/{args.aux_partition_size}"
+        save_dir = f"outputs/{args.table_name}/quantized_aux"
         start = time()
         unpredictabless = [
             load_npz(f"{save_dir}/{id}.npz") if id != first_col_id else None
             for id in range(len(corr_dep) + 1)
         ]
         time_elapsed["load_file"] += time() - start
+        save_dir = f"{save_dir}/{args.aux_partition_size}"
     elif args.inference_method == "bitarray":
-        save_dir = f"outputs/{args.table_name}/aux/{args.aux_partition_size}"
+        save_dir = f"outputs/{args.table_name}/aux"
         existence_bitarrays = []
         start = time()
         for id in range(len(corr_dep) + 1):
@@ -165,6 +166,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                 existence_bitarray.fromfile(f)
             existence_bitarrays.append(existence_bitarray)
         time_elapsed["load_bitarray"] += time() - start
+        save_dir = f"{save_dir}/{args.aux_partition_size}"
     else:
         raise ValueError("Invalid inference method")
 

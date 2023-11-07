@@ -101,27 +101,30 @@ def further_compress_unpredictables(unpredictables) -> bytes:
 
 
 def save_aux_structure(args, quantized_values, unpredictables, col_name):
-    save_dir = f"outputs/{args.table_name}/quantized_aux/{args.aux_partition_size}"
-    # Save quantization codes
-    if args.aux_partition_size == 0:
-        Path(save_dir).mkdir(parents=True, exist_ok=True)
-        torch.save(
-            quantized_values,
-            f"{save_dir}/{col_name}.pt",
-        )
-    else:
-        Path(f"{save_dir}/{col_name}").mkdir(parents=True, exist_ok=True)
-        size = len(quantized_values)
-        for idx in range(0, size, args.aux_partition_size):
-            partition = quantized_values[idx : idx + args.aux_partition_size].clone()
-            idx_ = idx // args.aux_partition_size
-            torch.save(partition, f"{save_dir}/{col_name}/{idx_}.pt")
-
     # Save unpredictable values
+    save_dir = f"outputs/{args.table_name}/quantized_aux"
     save_npz(
         f"{save_dir}/{col_name}.npz",
         unpredictables,
     )
+
+    # Save quantization codes
+    aux_partition_sizes = [int(size) for size in args.aux_partition_size.split(",")]
+    for aux_partition_size in aux_partition_sizes:
+        save_dir = f"outputs/{args.table_name}/quantized_aux/{aux_partition_size}"
+        if aux_partition_size == 0:
+            Path(save_dir).mkdir(parents=True, exist_ok=True)
+            torch.save(
+                quantized_values,
+                f"{save_dir}/{col_name}.pt",
+            )
+        else:
+            Path(f"{save_dir}/{col_name}").mkdir(parents=True, exist_ok=True)
+            size = len(quantized_values)
+            for idx in range(0, size, aux_partition_size):
+                partition = quantized_values[idx : idx + aux_partition_size].clone()
+                idx_ = idx // aux_partition_size
+                torch.save(partition, f"{save_dir}/{col_name}/{idx_}.pt")
 
 
 def create_quantized_aux_structure(
