@@ -151,7 +151,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
             load_npz(f"{save_dir}/{id}.npz") if id != first_col_id else None
             for id in range(len(corr_dep) + 1)
         ]
-        time_elapsed["load_file"] += time() - start
+        time_elapsed["load_unpredictables"] += time() - start
         save_dir = f"{save_dir}/{args.aux_partition_size}"
     elif args.inference_method == "bitarray":
         save_dir = f"outputs/{args.table_name}/aux"
@@ -187,18 +187,26 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                 start_idx = existence_bitarray.count(0, 0, query[0])
                 length = existence_bitarray.count(0, query[0], query[1])
                 end_idx = start_idx + length
+                time_elapsed["convert_incorrect"] += time() - start
 
                 if args.aux_partition_size == 0:
+                    start = time()
                     aux_data = torch.load(f"{save_dir}/{id}.pt")
                     selected_aux_data = (value for value in aux_data[start_idx:end_idx])
+                    time_elapsed["load_incorrect"] += time() - start
 
+                    start = time()
                 else:
                     partitions = []
                     start_partition = start_idx // args.aux_partition_size
                     end_partition = end_idx // args.aux_partition_size
+                    start = time()
                     for idx in range(start_partition, end_partition + 1):
                         partition = torch.load(f"{save_dir}/{id}/{idx}.pt")
                         partitions.append(partition)
+                    time_elapsed["load_incorrect"] += time() - start
+
+                    start = time()
                     selected_aux_data = torch.cat(partitions)
                     based_idx = start_partition * args.aux_partition_size
                     selected_aux_data = selected_aux_data[
@@ -212,7 +220,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                     dtype=torch.float32,
                 )
 
-                time_elapsed["load_incorrect"] += time() - start
+                time_elapsed["convert_incorrect"] += time() - start
 
                 final_output = inference_with_bitarray(
                     args, model, input_ts, aux_data, time_elapsed
@@ -415,13 +423,15 @@ def run():
 
     time_elapsed = {
         "inference": 0,
-        "decode": 0,
         "decompress": 0,
         "load_file": 0,
+        "load_unpredictables": 0,
+        "load_bitarray": 0,
         "load_quantized": 0,
+        "decode": 0,
         "convert_unpredictables": 0,
         "load_incorrect": 0,
-        "load_bitarray": 0,
+        "convert_incorrect": 0,
     }
     # Get correlation dependencies
     start = time()
