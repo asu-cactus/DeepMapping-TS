@@ -229,25 +229,31 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
             elif args.inference_method == "quantized":
                 start = time()
                 if args.aux_partition_size == 0:
-                    quantized_code = torch.load(f"{save_dir}/{id}.pt")[
-                        query[0] : query[1]
-                    ]
+                    start = time()
+                    quantized_code = torch.load(f"{save_dir}/{id}.pt")
+                    time_elapsed["load_quantized"] += time() - start
+                    start = time()
+                    quantized_code = quantized_code[query[0] : query[1]]
+                    time_elapsed["combine_index_quantized"] += time() - start
                 else:
-                    partitions = []
                     start_partition = query[0] // args.aux_partition_size
                     end_partition = query[1] // args.aux_partition_size
-                    for idx in range(start_partition, end_partition + 1):
-                        partition = torch.load(f"{save_dir}/{id}/{idx}.pt")
-                        partitions.append(partition)
+                    start = time()
+                    partitions = [
+                        torch.load(f"{save_dir}/{id}/{idx}.pt")
+                        for idx in range(start_partition, end_partition + 1)
+                    ]
+                    time_elapsed["load_quantized"] += time() - start
+                    start = time()
                     quantized_code = torch.cat(partitions)
                     # Get quantized code in the range of query
                     based_idx = start_partition * args.aux_partition_size
                     quantized_code = quantized_code[
                         query[0] - based_idx : query[1] - based_idx
                     ]
-                time_elapsed["load_quantized"] += time() - start
-                start = time()
+                    time_elapsed["combine_index_quantized"] += time() - start
 
+                start = time()
                 unpredictables = unpredictabless[id]
                 unpredictable_tensor = torch.from_numpy(
                     unpredictables[0, query[0] : query[1]].todense()
@@ -428,6 +434,7 @@ def run():
         "load_unpredictables": 0,
         "load_bitarray": 0,
         "load_quantized": 0,
+        "combine_index_quantized": 0,
         "decode": 0,
         "convert_unpredictables": 0,
         "load_incorrect": 0,
