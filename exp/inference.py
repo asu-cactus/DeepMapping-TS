@@ -185,7 +185,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                 existence_bitarray = existence_bitarrays[id]
                 start = time()
                 start_idx = existence_bitarray.count(0, 0, query[0])
-                length = existence_bitarray.count(0, query[0], query[1])
+                length = existence_bitarray.count(0, query[0], query[1] + 1)
                 end_idx = start_idx + length
                 time_elapsed["convert_incorrect"] += time() - start
 
