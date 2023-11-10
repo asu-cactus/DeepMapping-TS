@@ -127,7 +127,7 @@ def run_queries(args, input_ts, id, query_range, err_bound):
         query = generate_query(args.query_type, query_range)
         inference_func(
             model,
-            input_ts[query[0] : query[1]],
+            input_ts[query[0] : query[1] + 1],
             query,
             input_data1,
             input_data2,
@@ -174,7 +174,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
         query = generate_query(args.query_type, query_range)
 
         results = [None] * (len(corr_dep) + 1)
-        results[first_col_id] = start_column[query[0] : query[1]]
+        results[first_col_id] = start_column[query[0] : query[1] + 1]
         for id, dep_and_eb in corr_dep.items():
             dep, err_bound = dep_and_eb["dep"], dep_and_eb["err_bound"]
 
@@ -214,7 +214,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                     ]
                     selected_aux_data = (value for value in selected_aux_data)
 
-                selected_bits = existence_bitarray[query[0] : query[1]]
+                selected_bits = existence_bitarray[query[0] : query[1] + 1]
                 aux_data = torch.tensor(
                     [0.0 if bit else next(selected_aux_data) for bit in selected_bits],
                     dtype=torch.float32,
@@ -233,7 +233,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                     quantized_code = torch.load(f"{save_dir}/{id}.pt")
                     time_elapsed["load_quantized"] += time() - start
                     start = time()
-                    quantized_code = quantized_code[query[0] : query[1]]
+                    quantized_code = quantized_code[query[0] : query[1] + 1]
                     time_elapsed["combine_index_quantized"] += time() - start
                 else:
                     start_partition = query[0] // args.aux_partition_size
@@ -249,14 +249,14 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                     # Get quantized code in the range of query
                     based_idx = start_partition * args.aux_partition_size
                     quantized_code = quantized_code[
-                        query[0] - based_idx : query[1] - based_idx
+                        query[0] - based_idx : query[1] + 1 - based_idx
                     ]
                     time_elapsed["combine_index_quantized"] += time() - start
 
                 start = time()
                 unpredictables = unpredictabless[id]
                 unpredictable_tensor = torch.from_numpy(
-                    unpredictables[0, query[0] : query[1]].todense()
+                    unpredictables[0, query[0] : query[1] + 1].todense()
                 ).squeeze()
                 time_elapsed["convert_unpredictables"] += time() - start
 
@@ -310,7 +310,7 @@ def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_el
         query = generate_query(args.query_type, query_range)
 
         results = [
-            start_column[query[0] : query[1]] if start_column is not None else None
+            start_column[query[0] : query[1] + 1] if start_column is not None else None
             for start_column in start_columns
         ]
 
@@ -345,7 +345,7 @@ def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_el
                     ]
                     selected_aux_data = (value for value in selected_aux_data)
 
-                selected_bits = existence_bitarray[query[0] : query[1]]
+                selected_bits = existence_bitarray[query[0] : query[1] + 1]
                 aux_data = torch.tensor(
                     [0.0 if bit else next(selected_aux_data) for bit in selected_bits],
                     dtype=torch.float32,
@@ -361,7 +361,7 @@ def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_el
                 start = time()
                 if args.aux_partition_size == 0:
                     quantized_code = torch.load(f"{save_dir}/{id}.pt")[
-                        query[0] : query[1]
+                        query[0] : query[1] + 1
                     ]
                 else:
                     partitions = []
@@ -374,14 +374,14 @@ def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_el
                     # Get quantized code in the range of query
                     based_idx = start_partition * args.aux_partition_size
                     quantized_code = quantized_code[
-                        query[0] - based_idx : query[1] - based_idx
+                        query[0] - based_idx : query[1] + 1 - based_idx
                     ]
                 time_elapsed["load_quantized"] += time() - start
                 start = time()
 
                 unpredictables = unpredictabless[id]
                 unpredictable_tensor = torch.from_numpy(
-                    unpredictables[0, query[0] : query[1]].todense()
+                    unpredictables[0, query[0] : query[1] + 1].todense()
                 ).squeeze()
                 time_elapsed["load_incorrect"] += time() - start
                 final_output = inference_with_quantized_code(
