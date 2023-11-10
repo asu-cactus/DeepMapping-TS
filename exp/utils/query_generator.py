@@ -2,7 +2,10 @@ from random import randint
 
 
 def generate_query(query_type, range):
-    if query_type == "short":
+    if query_type == "point":
+        start = randint(0, range - 1)
+        return (start, start + 1)
+    elif query_type == "short":
         length_level = 10
     elif query_type == "medium":
         length_level = 1000

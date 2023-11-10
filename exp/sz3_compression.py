@@ -84,7 +84,7 @@ def run():
     parser = argparse.ArgumentParser(
         description="DeepMapping-TS baseline: sz compression"
     )
-    parser.add_argument("--task", type=str, default="compress")
+    parser.add_argument("--task", type=str, default="query")
     parser.add_argument("--table_name", type=str, default="ethylene_CO")
     parser.add_argument("--partition_size", type=int, default=100000)
     parser.add_argument("--query_type", type=str, default="short")
