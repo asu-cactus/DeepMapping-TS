@@ -114,17 +114,21 @@ def save_aux_structure(args, quantized_values, unpredictables, col_name):
         save_dir = f"outputs/{args.table_name}/quantized_aux/{aux_partition_size}"
         if aux_partition_size == 0:
             Path(save_dir).mkdir(parents=True, exist_ok=True)
-            torch.save(
-                quantized_values,
-                f"{save_dir}/{col_name}.pt",
-            )
+            # torch.save(
+            #     quantized_values,
+            #     f"{save_dir}/{col_name}.pt",
+            # )
+            with open(f"{save_dir}/{col_name}.npy", "wb") as f:
+                np.save(f, quantized_values)
         else:
             Path(f"{save_dir}/{col_name}").mkdir(parents=True, exist_ok=True)
             size = len(quantized_values)
             for idx in range(0, size, aux_partition_size):
-                partition = quantized_values[idx : idx + aux_partition_size].clone()
+                partition = quantized_values[idx : idx + aux_partition_size]
                 idx_ = idx // aux_partition_size
-                torch.save(partition, f"{save_dir}/{col_name}/{idx_}.pt")
+                # torch.save(partition, f"{save_dir}/{col_name}/{idx_}.pt")
+                with open(f"{save_dir}/{col_name}/{idx_}.npy", "wb") as f:
+                    np.save(f, partition)
 
 
 def create_quantized_aux_structure(
@@ -140,7 +144,8 @@ def create_quantized_aux_structure(
 
     print(f"Unpredictables: {np.count_nonzero(unpredictables)}")
 
-    quantized_values = torch.tensor(quantized_values, dtype=torch.uint8)
+    # Convert quantized_values and unpredictables to compact representations
+    quantized_values = np.array(quantized_values, dtype=np.uint8)
     unpredictables = csc_array(np.array(unpredictables, dtype=np.float32))
 
     # Save quantized_values and unpredictables
@@ -148,6 +153,6 @@ def create_quantized_aux_structure(
     return quantized_values, unpredictables
 
 
-def decode_quantized_values(quantized_values: torch.Tensor, err_bound: float):
+def decode_quantized_values(quantized_values, err_bound):
     # 128 = 2 ** 7
     return (quantized_values - 128) * err_bound * 2

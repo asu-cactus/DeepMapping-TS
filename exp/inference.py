@@ -1,7 +1,6 @@
 from exp.models.univariate import DilatedConvEncoder, ConvLayer, WindowMLP, WindowRNN
 from exp.utils.data_utils import load_data, get_ts_length
 from exp.utils.query_generator import generate_query
-from exp.utils.compress_utils import decode_quantized_values
 from exp.sz3.pysz import SZ
 
 from bitarray import bitarray
@@ -74,7 +73,7 @@ def inference_with_quantized_code(
     err_bound=None,
 ):
     # TODO: Consider no padding for input tensor
-    if args.model_type == "rnn" or "mlp":
+    if args.model_type == "rnn" or args.model_type == "mlp":
         # TODO: Correct the padding position
         original_length = len(input_ts)
         pad_size = args.window_size - len(input_ts) % args.window_size
@@ -85,16 +84,17 @@ def inference_with_quantized_code(
         model_output = model(input_ts.unsqueeze(0)).squeeze()
     time_elapsed["inference"] += time() - start
 
-    if args.model_type == "rnn" or "mlp":
+    if args.model_type == "rnn" or args.model_type == "mlp":
         model_output = model_output[:original_length]
 
     start = time()
-    dequantized_values = decode_quantized_values(quantized_code, err_bound)
+    # Decode quantized code
+    dequantized_values = (quantized_code - 128) * err_bound * 2
     # print(query)
-    # print(model_output.size())
-    # print(dequantized_values.size())
-    # print(unpredictables.size())
-    final_output = model_output + dequantized_values + unpredictables
+    # print(model_output.shape)
+    # print(dequantized_values.shape)
+    # print(unpredictables.shape)
+    final_output = model_output.numpy() + dequantized_values + unpredictables
     time_elapsed["decode"] += time() - start
     return final_output
 
@@ -238,14 +238,14 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                 else:
                     start_partition = query[0] // args.aux_partition_size
                     end_partition = query[1] // args.aux_partition_size
+                    partitions = []
                     start = time()
-                    partitions = [
-                        torch.load(f"{save_dir}/{id}/{idx}.pt")
-                        for idx in range(start_partition, end_partition + 1)
-                    ]
+                    for idx in range(start_partition, end_partition + 1):
+                        with open(f"{save_dir}/{id}/{idx}.npy", "rb") as f:
+                            partitions.append(np.load(f))
                     time_elapsed["load_quantized"] += time() - start
                     start = time()
-                    quantized_code = torch.cat(partitions)
+                    quantized_code = np.concatenate(partitions)
                     # Get quantized code in the range of query
                     based_idx = start_partition * args.aux_partition_size
                     quantized_code = quantized_code[
@@ -254,10 +254,11 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                     time_elapsed["combine_index_quantized"] += time() - start
 
                 start = time()
-                unpredictables = unpredictabless[id]
-                unpredictable_tensor = torch.from_numpy(
-                    unpredictables[0, query[0] : query[1] + 1].todense()
-                ).squeeze()
+                # This is a sparse vector
+                unpredictables = unpredictabless[id][0, query[0] : query[1] + 1]
+                # unpredictable_tensor = torch.from_numpy(
+                #     unpredictables[0, query[0] : query[1] + 1].todense()
+                # ).squeeze()
                 time_elapsed["convert_unpredictables"] += time() - start
 
                 final_output = inference_with_quantized_code(
@@ -265,14 +266,14 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                     model,
                     input_ts,
                     quantized_code,
-                    unpredictable_tensor,
+                    unpredictables,
                     time_elapsed,
                     err_bound=err_bound,
                 )
             else:
                 raise ValueError("Invalid inference method")
 
-            results[id] = final_output
+            results[id] = torch.from_numpy(final_output).float()
 
 
 def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_elapsed):
