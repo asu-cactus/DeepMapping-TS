@@ -106,8 +106,8 @@ def train(args):
 def eval(
     args, model, dataloader, origin_ndarray, reduced_ndarray, norm_param1, norm_param2
 ):
-    mean = np.delete(mean, args.input_col)
-    std = np.delete(std, args.input_col)
+    norm_param1 = np.delete(norm_param1, args.input_col)
+    norm_param2 = np.delete(norm_param2, args.input_col)
     origin_ndarray = np.delete(origin_ndarray, args.input_col, axis=1)
     reduced_ndarray = np.delete(reduced_ndarray, args.input_col, axis=1)
 
@@ -144,7 +144,7 @@ def run():
 
     parser.add_argument("--input_col", type=int, default=0)
     parser.add_argument("--process_mode", type=str, default="average")
-    parser.add_argument("--norm_mode", type=str, default="minmax")
+    parser.add_argument("--norm_mode", type=str, default="zscore")
     parser.add_argument("--window_size", type=int, default=1000)
     parser.add_argument("--reduce_factor", type=int, default=10)
 
