@@ -170,6 +170,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
     else:
         raise ValueError("Invalid inference method")
 
+    n_mutli_load = 0
     for _ in range(args.query_size):
         query = generate_query(args.query_type, query_range)
 
@@ -246,6 +247,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
 
                     if start_partition != end_partition:
                         for idx in range(start_partition + 1, end_partition + 1):
+                            n_mutli_load += 1
                             start = time()
                             with open(f"{save_dir}/{id}/{idx}.npy", "rb") as f:
                                 quantized_code = np.concatenate(
@@ -287,6 +289,7 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                 raise ValueError("Invalid inference method")
 
             results[id] = torch.from_numpy(final_output).float()
+    print("n_mutli_load:", n_mutli_load)
 
 
 def run_queries_for_pair_grouping(args, models, start_columns, corr_dep, time_elapsed):
