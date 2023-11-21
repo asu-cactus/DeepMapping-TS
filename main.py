@@ -6,7 +6,7 @@ random.seed(42)
 
 
 def main():
-    run_func = getattr(importlib.import_module("exp.inference"), "run")
+    run_func = getattr(importlib.import_module("exp2.train"), "run")
     run_func()
 
 
