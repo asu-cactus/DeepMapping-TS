@@ -242,16 +242,20 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                     start = time()
                     with open(f"{save_dir}/{id}/{start_partition}.npy", "rb") as f:
                         quantized_code = np.load(f)
+                    time_elapsed["load_quantized"] += time() - start
+
                     if start_partition != end_partition:
                         for idx in range(start_partition + 1, end_partition + 1):
+                            start = time()
                             with open(f"{save_dir}/{id}/{idx}.npy", "rb") as f:
                                 quantized_code = np.concatenate(
                                     (quantized_code, np.load(f))
                                 )
+                            time_elapsed["load_quantized"] += time() - start
                     # for idx in range(start_partition, end_partition + 1):
                     #     with open(f"{save_dir}/{id}/{idx}.npy", "rb") as f:
                     #         partitions.append(np.load(f))
-                    time_elapsed["load_quantized"] += time() - start
+
                     start = time()
                     # quantized_code = np.concatenate(partitions)
 
