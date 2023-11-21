@@ -238,14 +238,23 @@ def run_queries_v2(args, models, start_column, corr_dep, time_elapsed):
                 else:
                     start_partition = query[0] // args.aux_partition_size
                     end_partition = query[1] // args.aux_partition_size
-                    partitions = []
+                    # partitions = []
                     start = time()
-                    for idx in range(start_partition, end_partition + 1):
-                        with open(f"{save_dir}/{id}/{idx}.npy", "rb") as f:
-                            partitions.append(np.load(f))
+                    with open(f"{save_dir}/{id}/{start_partition}.npy", "rb") as f:
+                        quantized_code = np.load(f)
+                    if start_partition != end_partition:
+                        for idx in range(start_partition + 1, end_partition + 1):
+                            with open(f"{save_dir}/{id}/{idx}.npy", "rb") as f:
+                                quantized_code = np.concatenate(
+                                    (quantized_code, np.load(f))
+                                )
+                    # for idx in range(start_partition, end_partition + 1):
+                    #     with open(f"{save_dir}/{id}/{idx}.npy", "rb") as f:
+                    #         partitions.append(np.load(f))
                     time_elapsed["load_quantized"] += time() - start
                     start = time()
-                    quantized_code = np.concatenate(partitions)
+                    # quantized_code = np.concatenate(partitions)
+
                     # Get quantized code in the range of query
                     based_idx = start_partition * args.aux_partition_size
                     quantized_code = quantized_code[

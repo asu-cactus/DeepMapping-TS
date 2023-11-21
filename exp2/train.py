@@ -144,7 +144,7 @@ def run():
 
     parser.add_argument("--input_col", type=int, default=0)
     parser.add_argument("--process_mode", type=str, default="average")
-    parser.add_argument("--norm_mode", type=str, default="zscore")
+    parser.add_argument("--norm_mode", type=str, default="minmax")
     parser.add_argument("--window_size", type=int, default=1000)
     parser.add_argument("--reduce_factor", type=int, default=10)
 
